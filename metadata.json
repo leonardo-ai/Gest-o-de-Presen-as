@@ -1,0 +1,6 @@
+{
+  "name": "Gestão de Presenças da Atlética",
+  "description": "Sistema de controle e gestão de presença, reuniões, eventos e diretoria para atléticas universitárias com suporte a importação de planilhas.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

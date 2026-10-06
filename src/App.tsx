@@ -9,6 +9,7 @@ import {
   OfficialArea 
 } from './types';
 import { loadData, saveData, loadSelectedArea, saveSelectedArea } from './utils/storage';
+import { getMembers, upsertMember, removeMember } from './services/membersService';
 import { AreaSelectionHub } from './components/AreaSelectionHub';
 import { Header } from './components/Header';
 import { Navigation, TabKey } from './components/Navigation';
@@ -54,6 +55,13 @@ export default function App() {
     setAttendance(data.attendance);
     setConfig(data.config);
     setTransactions(data.transactions || []);
+
+    // Busca membros do Supabase se configurado
+    getMembers().then(fetched => {
+      if (fetched && fetched.length > 0) {
+        setMembers(fetched);
+      }
+    });
 
     const savedArea = loadSelectedArea();
     if (savedArea) {
@@ -175,27 +183,27 @@ export default function App() {
     showToast('Presença atualizada!');
   };
 
-  const handleAddMember = (newMember: Member) => {
-    const updated = [newMember, ...members];
+  const handleAddMember = async (newMember: Member) => {
+    const saved = await upsertMember(newMember);
+    const updated = [saved, ...members];
     setMembers(updated);
-    saveData({ members: updated });
-    showToast(`Membro "${newMember.name}" adicionado!`);
+    showToast(`Membro "${saved.name}" adicionado!`);
   };
 
-  const handleSaveMember = (updatedMember: Member) => {
-    const updated = members.map(m => (m.id === updatedMember.id ? updatedMember : m));
+  const handleSaveMember = async (updatedMember: Member) => {
+    const saved = await upsertMember(updatedMember);
+    const updated = members.map(m => (m.id === saved.id ? saved : m));
     setMembers(updated);
-    saveData({ members: updated });
-    showToast(`Dados de ${updatedMember.name} atualizados!`);
+    showToast(`Dados de ${saved.name} atualizados!`);
   };
 
-  const handleDeleteMember = (memberId: string) => {
+  const handleDeleteMember = async (memberId: string) => {
     const mem = members.find(m => m.id === memberId);
     if (!mem) return;
     if (!confirm(`Tem certeza que deseja excluir "${mem.name}" da gestão?`)) return;
+    await removeMember(memberId);
     const updated = members.filter(m => m.id !== memberId);
     setMembers(updated);
-    saveData({ members: updated });
     showToast(`Membro "${mem.name}" excluído da gestão.`);
   };
 
@@ -232,6 +240,11 @@ export default function App() {
             onRefreshAllPoints={(updatedMembers) => {
               setMembers(updatedMembers);
               saveData({ members: updatedMembers });
+              getMembers().then(fetched => {
+                if (fetched && fetched.length > 0) {
+                  setMembers(fetched);
+                }
+              });
             }}
           />
         )}

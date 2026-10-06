@@ -17,6 +17,12 @@ import {
   calculateWeeklyPoints,
   isMemberAlreadyCountedAssociateInMonth
 } from '../utils/weeklyAttendance';
+import { 
+  upsertLegend, 
+  saveMemberAttendance,
+  getWeeklyRecords,
+  getLegends
+} from '../services/attendanceService';
 
 interface QuickAttendanceProps {
   members: Member[];
@@ -69,21 +75,64 @@ export const QuickAttendance: React.FC<QuickAttendanceProps> = ({
   // Membro atualmente aberto para preenchimento
   const [expandedMemberId, setExpandedMemberId] = useState<string | null>(null);
 
-  // Atualizar a legenda ao mudar de mês ou semana
+  // 1. Carregamento inicial do Supabase (presenças compartilhadas e legendas)
   useEffect(() => {
-    const l = getLegendFor(selectedMonth, selectedWeek);
-    setLegend(l);
-    setEditDateRange(l.dateRange);
-    setEditHadTraining(l.hadTraining);
-    setEditTrainingLocation(l.trainingLocation || 'Orsina');
-    setEditGamesCount(l.gamesCount);
-    setEditGamesDescription(l.gamesDescription || '');
-    setEditEventsCount(l.eventsCount);
-    setEditEventsDescription(l.eventsDescription || '');
+    let isMounted = true;
+    getWeeklyRecords().then(records => {
+      if (isMounted && records && records.length > 0) {
+        setWeeklyRecords(records);
+      }
+    });
+    getLegends().then(legendsMap => {
+      if (isMounted && legendsMap) {
+        const key = `${selectedMonth}-w${selectedWeek}`;
+        if (legendsMap[key]) {
+          setLegend(legendsMap[key]);
+        }
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // 2. Atualizar a legenda ao mudar de mês ou semana
+  useEffect(() => {
+    let isMounted = true;
+    const localLegend = getLegendFor(selectedMonth, selectedWeek);
+    setLegend(localLegend);
+    setEditDateRange(localLegend.dateRange);
+    setEditHadTraining(localLegend.hadTraining);
+    setEditTrainingLocation(localLegend.trainingLocation || 'Orsina');
+    setEditGamesCount(localLegend.gamesCount);
+    setEditGamesDescription(localLegend.gamesDescription || '');
+    setEditEventsCount(localLegend.eventsCount);
+    setEditEventsDescription(localLegend.eventsDescription || '');
     setIsEditingLegend(false);
+
+    // Busca versão mais recente do Supabase se disponível
+    getLegends().then(allLegends => {
+      if (!isMounted || !allLegends) return;
+      const key = `${selectedMonth}-w${selectedWeek}`;
+      if (allLegends[key]) {
+        const l = allLegends[key];
+        setLegend(l);
+        setEditDateRange(l.dateRange);
+        setEditHadTraining(l.hadTraining);
+        setEditTrainingLocation(l.trainingLocation || 'Orsina');
+        setEditGamesCount(l.gamesCount);
+        setEditGamesDescription(l.gamesDescription || '');
+        setEditEventsCount(l.eventsCount);
+        setEditEventsDescription(l.eventsDescription || '');
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
   }, [selectedMonth, selectedWeek]);
 
-  const handleSaveLegend = () => {
+  const handleSaveLegend = async () => {
     const updated: WeekScheduleLegend = {
       ...legend,
       dateRange: editDateRange.trim() || legend.dateRange,
@@ -96,6 +145,7 @@ export const QuickAttendance: React.FC<QuickAttendanceProps> = ({
     };
     setLegend(updated);
     saveWeekLegend(updated);
+    await upsertLegend(updated);
     setIsEditingLegend(false);
   };
 
@@ -140,8 +190,8 @@ export const QuickAttendance: React.FC<QuickAttendanceProps> = ({
     };
   };
 
-  // Salvar alterações e recalcular pontos totais
-  const updateRecord = (updated: WeeklyMemberAttendance) => {
+  // Salvar alterações com idempotência garantida e recalcular pontos
+  const updateRecord = async (updated: WeeklyMemberAttendance) => {
     const otherRecords = weeklyRecords.filter(
       r => !(r.memberId === updated.memberId && r.month === updated.month && r.week === updated.week)
     );
@@ -149,7 +199,10 @@ export const QuickAttendance: React.FC<QuickAttendanceProps> = ({
     setWeeklyRecords(newRecords);
     saveWeeklyRecords(newRecords);
 
-    // Recalcular pontuação total de todos os membros a partir dos registros semanais + base inicial
+    // Salva na tabela e sincroniza transações de pontos de forma atômica
+    await saveMemberAttendance(updated, legend, newRecords);
+
+    // Recalcular pontuação total de todos os membros a partir dos registros semanais (base inicial = 0)
     if (onRefreshAllPoints) {
       const updatedMembers = members.map(m => {
         const memRecords = newRecords.filter(r => r.memberId === m.id);
@@ -166,10 +219,9 @@ export const QuickAttendance: React.FC<QuickAttendanceProps> = ({
           totalWeeklyPoints += calculateWeeklyPoints(rec, recLegend, alreadyAssociate);
         });
 
-        const initialBase = m.initialPoints ?? 0;
         return {
           ...m,
-          points: initialBase + totalWeeklyPoints,
+          points: totalWeeklyPoints,
         };
       });
 

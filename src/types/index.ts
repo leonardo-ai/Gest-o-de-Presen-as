@@ -46,14 +46,30 @@ export interface ScoreRule {
   icon?: string;
 }
 
+export type PointCategory = 
+  | 'treino'
+  | 'jogo'
+  | 'evento'
+  | 'associado'
+  | 'destaque'
+  | 'extra'
+  | 'ajuste_manual'
+  | 'carga_inicial';
+
 export interface PointTransaction {
   id: string;
   memberId: string;
   points: number;
-  reason: string;
-  date: string;
+  category?: PointCategory;
+  description?: string;
+  reason?: string;
+  referenceId?: string;
+  date?: string;
+  month?: string;
+  week?: number;
   meetingId?: string;
   ruleId?: string;
+  createdAt?: string;
 }
 
 export interface Member {
